@@ -50,11 +50,7 @@ def profile(request, username):
     author = get_object_or_404(User, username=username)
     following = False
     if user.is_authenticated:
-        try:
-            get_object_or_404(Follow, user=user, author=author)
-            following = True
-        except Http404:
-            following = False
+        following = Follow.objects.filter(user=user, author=author).exists()
 
     post_list = Post.objects.filter(author=author)
     paginator = Paginator(post_list, 10)
@@ -140,13 +136,10 @@ def follow_index(request):
 def profile_follow(request, username):
     user = request.user
     author = get_object_or_404(User, username=username)
-    try:
-        get_object_or_404(Follow, user=user, author=author)
-        follow = True
-    except Http404:
-        follow = False
-    if user != author and follow is False:
-        Follow.objects.create(user=request.user, author=author)
+    if user != author:
+        follow, created = Follow.objects.get_or_create(
+            user=user, author=author
+        )
         return redirect('follow_index')
     return redirect('follow_index')
 
@@ -155,9 +148,6 @@ def profile_follow(request, username):
 def profile_unfollow(request, username):
     user = request.user
     author = get_object_or_404(User, username=username)
-    try:
-        follow = Follow.objects.get(user=user, author=author)
-    except follow.DoesNotExist:
-        return redirect('follow_index')
+    follow = Follow.objects.filter(user=user, author=author)
     follow.delete()
     return redirect('follow_index')

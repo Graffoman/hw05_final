@@ -76,6 +76,9 @@ class Follow(models.Model):
         verbose_name='Тот, на кого подписались'
     )
 
+    class Meta:
+        unique_together = (('user', 'author'),)
+
     def __str__(self):
         follow_info = (
             f'{self.user.username} подписан на: {self.author.username}'

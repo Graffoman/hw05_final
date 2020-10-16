@@ -1,12 +1,16 @@
+import os
+import shutil
+
 from datetime import datetime
 
 from django.core.cache import cache
-from django.http import Http404
-from django.shortcuts import get_object_or_404
+from django.core.files.images import ImageFile
 from django.test import Client, TestCase
 from django.urls import reverse
 
 from .models import Comment, Follow, Group, Post, User
+
+from PIL import Image
 
 #   python manage.py test posts.tests
 
@@ -25,18 +29,21 @@ class PostsAppTestKit(TestCase):
         self.client.force_login(self.user)
         self.no_auth_client = Client()
 
-        with open('posts/tests/test_image.jpg', 'rb') as img:
-            self.client.post(
-                reverse('new_post'),
-                {
-                    'text': 'Тестовый текст',
-                    'author': self.user,
-                    'group': self.test_group.id,
-                    'image': img
-                }
+        self.path = 'posts/temp'
+        os.mkdir(self.path)
+        image = Image.new('RGB', (200, 200), (255, 0, 0))
+        image.save(f'{self.path}/image.jpg')
+
+        with open(f'{self.path}/image.jpg', 'rb') as img:
+            image = ImageFile(img)
+            Post.objects.create(
+                text='Тестовый текст',
+                author=self.user,
+                group=self.test_group,
+                image=image
             )
 
-    def common_tests(self):
+    def common_tests(self, test_post):
         resp_profile = self.client.get(
             reverse('profile', args=[self.user.username])
         )
@@ -44,12 +51,6 @@ class PostsAppTestKit(TestCase):
         resp_group = self.client.get(
             reverse('group', args=[self.test_group.slug])
         )
-
-        try:
-            test_post = Post.objects.get(text='Тестовый текст')
-        except Post.DoesNotExist:
-            test_post = Post.objects.get(text='Edited')
-            return test_post
         resp_test_post = self.client.get(
             reverse(
                 'post', args=[test_post.author.username, test_post.id]
@@ -64,7 +65,6 @@ class PostsAppTestKit(TestCase):
         for resp in resps:
             post_list = resp.context['paginator'].page(1)
             self.assertIn(test_post, post_list)
-            self.assertEqual(len(post_list.object_list), 1)
             self.assertIn(
                 '<img class="card-img"', resp.content.decode('utf-8')
             )
@@ -83,14 +83,25 @@ class PostsAppTestKit(TestCase):
             resp_newpost, reverse('login')+'?next='+reverse('new_post'),
             status_code=302
         )
-        with self.assertRaises(Http404):
-            get_object_or_404(Post, text='Другой тестовый текст')
+        post = Post.objects.filter(text='Другой тестовый текст').exists()
+        self.assertEqual(post, False)
 
-    def test_newpost_with_auth(self):
-        self.common_tests()
+    def test_post_with_auth_and_image(self):
+        with open(f'{self.path}/image.jpg', 'rb') as img:
+            self.client.post(
+                reverse('new_post'),
+                {
+                    'text': 'Тест',
+                    'author': self.user,
+                    'group': self.test_group.id,
+                    'image': img
+                }
+            )
+        test_post = Post.objects.get(text='Тест')
+        self.common_tests(test_post)
 
     def test_post_edit(self):
-        test_post = get_object_or_404(Post, text='Тестовый текст')
+        test_post = Post.objects.get(text='Тестовый текст')
         resp_edit = self.client.post(
             reverse(
                 'post_edit', args=[test_post.author.username, test_post.id]
@@ -101,16 +112,19 @@ class PostsAppTestKit(TestCase):
             },
             follow=True
         )
-        edited_post = get_object_or_404(Post, text='Edited')
+        edited_post = Post.objects.get(text='Edited')
         url = reverse(
             'post', args=[edited_post.author.username, edited_post.id]
         )
         self.assertRedirects(resp_edit, url, status_code=302)
 
-        with self.assertRaises(Http404):
-            get_object_or_404(Post, text='Тестовый текст')
+        post = Post.objects.filter(text='Тестовый текст').exists()
+        self.assertEqual(post, False)
 
-        with open('posts/tests/test_text.txt', 'rb') as txt:
+        text_file = open(f'{self.path}/text.txt', 'w')
+        text_file.write('Тест')
+        text_file.close()
+        with open(f'{self.path}/text.txt', 'rb') as txt:
             response = self.client.post(
                 reverse(
                     'post_edit', args=[test_post.author.username, test_post.id]
@@ -128,7 +142,7 @@ class PostsAppTestKit(TestCase):
                 'or a corrupted image.'
             )
         )
-        self.common_tests()
+        self.common_tests(edited_post)
 
     def test_page_not_found(self):
         response = self.client.get('not_existing_page/')
@@ -136,6 +150,7 @@ class PostsAppTestKit(TestCase):
 
     def tearDown(self):
         cache.clear()
+        shutil.rmtree(self.path)
 
 
 class TestCache(TestCase):
@@ -184,15 +199,10 @@ class FollowTestKit(TestCase):
         self.client_celebrity.force_login(self.celebrity)
 
     def get_follow(self):
-        try:
-            follow = get_object_or_404(
-                Follow, user=self.follower, author=self.celebrity
-            )
-            follow = True
-        except Http404:
-            follow = False
-        finally:
-            return follow
+        follow = Follow.objects.filter(
+            user=self.follower, author=self.celebrity
+            ).exists()
+        return follow
 
     def test_auth_follow(self):
         self.assertEqual(self.get_follow(), True)
@@ -230,15 +240,8 @@ class CommentTest(TestCase):
             )
 
     def get_comment(self):
-        try:
-            comment = get_object_or_404(
-                Comment, text='тестовый коммент'
-            )
-            comment = True
-        except Http404:
-            comment = False
-        finally:
-            return comment
+        comment = Comment.objects.filter(text='тестовый коммент').exists()
+        return comment
 
     def test_comment_with_auth(self):
         self.client.post(
