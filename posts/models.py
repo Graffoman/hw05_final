@@ -68,12 +68,12 @@ class Comment(models.Model):
 
 class Follow(models.Model):
     user = models.ForeignKey(
-        User, on_delete=models.CASCADE,
+        User, on_delete=models.CASCADE, blank=True, null=True,
         related_name='follower', verbose_name='Подписчик'
     )
     author = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name='following',
-        verbose_name='Тот, на кого подписались'
+        User, on_delete=models.CASCADE, blank=True, null=True,
+        related_name='following', verbose_name='Тот, на кого подписались'
     )
 
     class Meta:
